@@ -1,0 +1,220 @@
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from pymongo import MongoClient
+from bson.objectid import ObjectId
+import bcrypt
+import random
+import os
+from datetime import datetime
+from dotenv import load_dotenv
+
+load_dotenv()
+
+app = Flask(__name__)
+app.secret_key = os.getenv('SECRET_KEY', 'quiz-generator-secret-key-2024')
+
+# MongoDB Connection
+MONGO_URI = os.getenv('MONGO_URI', 'mongodb://localhost:27017/')
+client = MongoClient(MONGO_URI)
+db = client['quiz_generator']
+
+users_col = db['users']
+quizzes_col = db['quizzes']
+attempts_col = db['attempts']
+
+# Create indexes
+users_col.create_index('username', unique=True)
+
+def get_current_user():
+    if 'username' in session:
+        return users_col.find_one({'username': session['username']})
+    return None
+
+# ─── WELCOME ────────────────────────────────────────────────────────────────
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+# ─── AUTH ────────────────────────────────────────────────────────────────────
+
+@app.route('/login/<role>', methods=['GET', 'POST'])
+def login(role):
+    if role not in ['student', 'teacher']:
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
+        user = users_col.find_one({'username': username, 'role': role})
+        if user and bcrypt.checkpw(password.encode(), user['password']):
+            session['username'] = username
+            session['role'] = role
+            return redirect(url_for('dashboard'))
+        return render_template('login.html', role=role, error='Invalid credentials. Please try again.')
+    return render_template('login.html', role=role)
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
+        role = request.form.get('role', '').strip()
+        if not username or not password or role not in ['student', 'teacher']:
+            return render_template('register.html', error='All fields are required.')
+        if users_col.find_one({'username': username}):
+            return render_template('register.html', error='Username already taken.')
+        hashed = bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+        users_col.insert_one({'username': username, 'password': hashed, 'role': role, 'created_at': datetime.utcnow()})
+        return redirect(url_for('login', role=role))
+    role = request.args.get('role', 'student')
+    return render_template('register.html', role=role)
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('index'))
+
+# ─── DASHBOARD ───────────────────────────────────────────────────────────────
+
+@app.route('/dashboard')
+def dashboard():
+    user = get_current_user()
+    if not user:
+        return redirect(url_for('index'))
+    if user['role'] == 'teacher':
+        quizzes = list(quizzes_col.find({'teacher': user['username']}))
+        for q in quizzes:
+            q['attempt_count'] = attempts_col.count_documents({'quiz_id': str(q['_id'])})
+            all_students = users_col.count_documents({'role': 'student'})
+            q['not_attempted'] = all_students - q['attempt_count']
+        return render_template('teacher_dashboard.html', user=user, quizzes=quizzes)
+    else:
+        quizzes = list(quizzes_col.find())
+        attempted_ids = [a['quiz_id'] for a in attempts_col.find({'student_username': user['username']})]
+        for q in quizzes:
+            q['attempted'] = str(q['_id']) in attempted_ids
+        return render_template('student_dashboard.html', user=user, quizzes=quizzes)
+
+# ─── TEACHER ROUTES ──────────────────────────────────────────────────────────
+
+@app.route('/create-quiz', methods=['GET', 'POST'])
+def create_quiz():
+    user = get_current_user()
+    if not user or user['role'] != 'teacher':
+        return redirect(url_for('index'))
+    if request.method == 'POST':
+        data = request.get_json()
+        quiz = {
+            'title': data['title'],
+            'teacher': user['username'],
+            'timer': int(data['timer']),
+            'questions': data['questions'],
+            'created_at': datetime.utcnow()
+        }
+        quizzes_col.insert_one(quiz)
+        return jsonify({'success': True})
+    return render_template('create_quiz.html', user=user)
+
+@app.route('/quiz-results/<quiz_id>')
+def quiz_results(quiz_id):
+    user = get_current_user()
+    if not user or user['role'] != 'teacher':
+        return redirect(url_for('index'))
+    quiz = quizzes_col.find_one({'_id': ObjectId(quiz_id)})
+    attempts = list(attempts_col.find({'quiz_id': quiz_id}))
+    attempts_sorted = sorted(attempts, key=lambda x: x.get('score', 0), reverse=True)
+    all_students = list(users_col.find({'role': 'student'}))
+    attempted_usernames = [a['student_username'] for a in attempts]
+    not_attempted = [s['username'] for s in all_students if s['username'] not in attempted_usernames]
+    return render_template('quiz_results.html', user=user, quiz=quiz, attempts=attempts_sorted, not_attempted=not_attempted)
+
+@app.route('/delete-quiz/<quiz_id>', methods=['POST'])
+def delete_quiz(quiz_id):
+    user = get_current_user()
+    if not user or user['role'] != 'teacher':
+        return jsonify({'success': False})
+    quizzes_col.delete_one({'_id': ObjectId(quiz_id), 'teacher': user['username']})
+    attempts_col.delete_many({'quiz_id': quiz_id})
+    return jsonify({'success': True})
+
+# ─── STUDENT ROUTES ──────────────────────────────────────────────────────────
+
+@app.route('/quiz/<quiz_id>')
+def take_quiz(quiz_id):
+    user = get_current_user()
+    if not user or user['role'] != 'student':
+        return redirect(url_for('index'))
+    existing = attempts_col.find_one({'student_username': user['username'], 'quiz_id': quiz_id})
+    if existing:
+        return redirect(url_for('result', attempt_id=str(existing['_id'])))
+    quiz = quizzes_col.find_one({'_id': ObjectId(quiz_id)})
+    if not quiz:
+        return redirect(url_for('dashboard'))
+    questions = quiz['questions'].copy()
+    random.shuffle(questions)
+    for q in questions:
+        opts = q['options'].copy()
+        random.shuffle(opts)
+        q['options'] = opts
+    return render_template('quiz.html', user=user, quiz=quiz, questions=questions, quiz_id=quiz_id)
+
+@app.route('/submit-quiz/<quiz_id>', methods=['POST'])
+def submit_quiz(quiz_id):
+    user = get_current_user()
+    if not user or user['role'] != 'student':
+        return jsonify({'success': False})
+    existing = attempts_col.find_one({'student_username': user['username'], 'quiz_id': quiz_id})
+    if existing:
+        return jsonify({'success': True, 'attempt_id': str(existing['_id'])})
+    quiz = quizzes_col.find_one({'_id': ObjectId(quiz_id)})
+    data = request.get_json()
+    answers = data.get('answers', {})
+    score = 0
+    total = len(quiz['questions'])
+    result_details = []
+    for q in quiz['questions']:
+        qid = str(q.get('id', q['question']))
+        user_ans = answers.get(qid, '')
+        correct = q['correct_answer']
+        is_correct = user_ans == correct
+        if is_correct:
+            score += 1
+        result_details.append({
+            'question': q['question'],
+            'user_answer': user_ans,
+            'correct_answer': correct,
+            'is_correct': is_correct,
+            'options': q['options']
+        })
+    attempt = {
+        'student_username': user['username'],
+        'quiz_id': quiz_id,
+        'quiz_title': quiz['title'],
+        'score': score,
+        'total': total,
+        'answers': result_details,
+        'submitted_at': datetime.utcnow()
+    }
+    result = attempts_col.insert_one(attempt)
+    return jsonify({'success': True, 'attempt_id': str(result.inserted_id)})
+
+@app.route('/result/<attempt_id>')
+def result(attempt_id):
+    user = get_current_user()
+    if not user:
+        return redirect(url_for('index'))
+    attempt = attempts_col.find_one({'_id': ObjectId(attempt_id)})
+    if not attempt:
+        return redirect(url_for('dashboard'))
+    quiz = quizzes_col.find_one({'_id': ObjectId(attempt['quiz_id'])})
+    leaderboard = list(attempts_col.find({'quiz_id': attempt['quiz_id']}).sort('score', -1).limit(10))
+    return render_template('result.html', user=user, attempt=attempt, quiz=quiz, leaderboard=leaderboard)
+
+# ─── LEADERBOARD API ─────────────────────────────────────────────────────────
+
+@app.route('/api/leaderboard/<quiz_id>')
+def leaderboard(quiz_id):
+    entries = list(attempts_col.find({'quiz_id': quiz_id}).sort('score', -1).limit(10))
+    return jsonify([{'username': e['student_username'], 'score': e['score'], 'total': e['total']} for e in entries])
+
+if __name__ == '__main__':
+    app.run(debug=True, port=5000)
