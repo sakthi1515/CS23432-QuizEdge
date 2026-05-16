@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Results — {{ attempt.quiz_title }}{% endblock %}
+{% block content %}
+<div class="result-page">
+  <div class="result-hero">
+    <div class="result-score-ring">
+      <svg viewBox="0 0 120 120" class="ring-svg">
+        <circle cx="60" cy="60" r="50" class="ring-bg"/>
+        <circle cx="60" cy="60" r="50" class="ring-fill" id="ringFill"
+          style="stroke-dasharray: {{ (attempt.score / attempt.total * 314)|int }} 314"/>
+      </svg>
+      <div class="ring-text">
+        <div class="ring-score">{{ attempt.score }}</div>
+        <div class="ring-total">/ {{ attempt.total }}</div>
+      </div>
+    </div>
+    <div class="result-summary">
+      <h1>{{ attempt.quiz_title }}</h1>
+      {% set pct = (attempt.score / attempt.total * 100)|int %}
+      <div class="result-grade {% if pct >= 80 %}grade-a{% elif pct >= 60 %}grade-b{% elif pct >= 40 %}grade-c{% else %}grade-d{% endif %}">
+        {% if pct >= 80 %}Excellent! 🏆{% elif pct >= 60 %}Good Job! 👍{% elif pct >= 40 %}Keep Trying! 💪{% else %}Need Practice 📚{% endif %}
+      </div>
+      <div class="result-stats">
+        <div class="rstat correct">✓ {{ attempt.score }} Correct</div>
+        <div class="rstat wrong">✕ {{ attempt.total - attempt.score }} Wrong</div>
+        <div class="rstat pct">{{ pct }}% Score</div>
+      </div>
+      <a href="{{ url_for('dashboard') }}" class="btn-primary">Back to Dashboard</a>
+    </div>
+  </div>
+
+  <div class="result-body">
+    <div class="result-answers">
+      <h2>Answer Review</h2>
+      {% for ans in attempt.answers %}
+      <div class="answer-card {% if ans.is_correct %}correct-card{% else %}wrong-card{% endif %}">
+        <div class="ans-header">
+          <span class="ans-badge {% if ans.is_correct %}correct-badge{% else %}wrong-badge{% endif %}">
+            {{ '✓' if ans.is_correct else '✕' }}
+          </span>
+          <span class="ans-q">{{ loop.index }}. {{ ans.question }}</span>
+        </div>
+        <div class="ans-details">
+          <div class="ans-row your-ans">
+            <span class="ans-label">Your answer:</span>
+            <span class="ans-val {% if ans.is_correct %}ans-correct{% else %}ans-wrong{% endif %}">
+              {{ ans.user_answer if ans.user_answer else '(No answer)' }}
+            </span>
+          </div>
+          {% if not ans.is_correct %}
+          <div class="ans-row correct-ans">
+            <span class="ans-label">Correct answer:</span>
+            <span class="ans-val ans-correct">{{ ans.correct_answer }}</span>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+
+    <div class="leaderboard-panel">
+      <h2>🏆 Leaderboard</h2>
+      <div class="leaderboard-list">
+        {% for entry in leaderboard %}
+        <div class="lb-row {% if entry.student_username == attempt.student_username %}lb-you{% endif %}">
+          <span class="lb-rank">
+            {% if loop.index == 1 %}🥇{% elif loop.index == 2 %}🥈{% elif loop.index == 3 %}🥉{% else %}{{ loop.index }}{% endif %}
+          </span>
+          <span class="lb-name">{{ entry.student_username }}{% if entry.student_username == attempt.student_username %} (You){% endif %}</span>
+          <span class="lb-score">{{ entry.score }}/{{ entry.total }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

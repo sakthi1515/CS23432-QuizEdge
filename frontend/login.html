@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Login — {{ role|capitalize }}{% endblock %}
+{% block content %}
+<div class="auth-page">
+  <div class="auth-sidebar">
+    <a href="{{ url_for('index') }}" class="back-link">← Back</a>
+    <div class="auth-sidebar-content">
+      <div class="auth-role-icon">{{ '🎓' if role == 'student' else '📋' }}</div>
+      <h2>{{ role|capitalize }} Portal</h2>
+      <p>{{ "Access your quizzes and track your learning journey." if role == 'student' else "Manage your quizzes and monitor student performance." }}</p>
+    </div>
+  </div>
+  <div class="auth-form-area">
+    <div class="auth-card">
+      <h1>Welcome back</h1>
+      <p class="auth-subtitle">Sign in to your {{ role }} account</p>
+      {% if error %}
+      <div class="alert alert-error">{{ error }}</div>
+      {% endif %}
+      <form method="POST" class="auth-form">
+        <div class="form-group">
+          <label>Username</label>
+          <input type="text" name="username" required placeholder="Enter your username" autocomplete="username"/>
+        </div>
+        <div class="form-group">
+          <label>Password</label>
+          <input type="password" name="password" required placeholder="Enter your password" autocomplete="current-password"/>
+        </div>
+        <button type="submit" class="btn-primary full-width">Sign In</button>
+      </form>
+      <p class="auth-switch">Don't have an account? <a href="{{ url_for('register', role=role) }}">Create one</a></p>
+    </div>
+  </div>
+</div>
+{% endblock %}

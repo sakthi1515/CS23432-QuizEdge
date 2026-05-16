@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Leaderboard · Quiz Generator{% endblock %}
+{% block content %}
+
+<div class="leaderboard-wrapper">
+  <div class="lb-header">
+    <a href="/dashboard" class="back-link">← Back to Dashboard</a>
+    <div class="lb-title-row">
+      <h1 class="dash-title">🏆 Leaderboard</h1>
+      <div class="lb-quiz-name" id="lb-quiz-name"></div>
+    </div>
+  </div>
+
+  <div id="lb-content">
+    <div class="loading-state"><div class="loader"></div><p>Loading leaderboard…</p></div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+const QUIZ_ID = '{{ quiz_id }}';
+
+async function loadLeaderboard() {
+  const res = await fetch(`/api/quiz/${QUIZ_ID}/leaderboard`);
+  const data = await res.json();
+
+  document.getElementById('lb-quiz-name').textContent = data.quiz_title;
+
+  const board = data.leaderboard;
+
+  if (!board.length) {
+    document.getElementById('lb-content').innerHTML = `
+      <div class="empty-state"><div class="empty-icon">🎯</div><p>No attempts yet. Be the first!</p></div>`;
+    return;
+  }
+
+  const top3 = board.slice(0, 3);
+  const rest = board.slice(3);
+  const medals = ['🥇', '🥈', '🥉'];
+  const podiumColors = ['gold', 'silver', 'bronze'];
+
+  document.getElementById('lb-content').innerHTML = `
+    <div class="podium">
+      ${top3.map((entry, i) => `
+        <div class="podium-slot podium-${i+1} ${entry.is_current ? 'is-you' : ''}">
+          <div class="podium-medal">${medals[i]}</div>
+          <div class="podium-name">${entry.student}${entry.is_current ? ' (You)' : ''}</div>
+          <div class="podium-score">${entry.score}/${entry.total}</div>
+          <div class="podium-pct">${entry.percentage}%</div>
+          <div class="podium-bar podium-bar-${podiumColors[i]}"></div>
+        </div>
+      `).join('')}
+    </div>
+
+    ${rest.length ? `
+    <div class="lb-table-wrap">
+      <table class="results-table">
+        <thead>
+          <tr><th>Rank</th><th>Student</th><th>Score</th><th>Percentage</th><th>Date</th></tr>
+        </thead>
+        <tbody>
+          ${rest.map(e => `
+            <tr class="${e.is_current ? 'row-highlight' : ''}">
+              <td><span class="rank-badge">#${e.rank}</span></td>
+              <td>${e.student}${e.is_current ? ' <span class="you-badge">You</span>' : ''}</td>
+              <td>${e.score}/${e.total}</td>
+              <td>
+                <div class="pct-bar"><div style="width:${e.percentage}%"></div></div>
+                <span>${e.percentage}%</span>
+              </td>
+              <td class="date-cell">${new Date(e.submitted_at).toLocaleDateString()}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>` : ''}
+  `;
+}
+
+loadLeaderboard();
+</script>
+{% endblock %}

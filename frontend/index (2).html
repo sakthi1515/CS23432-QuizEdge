@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Quiz Generator — Welcome{% endblock %}
+{% block content %}
+<div class="welcome-page">
+  <div class="welcome-bg">
+    <div class="hex hex1"></div>
+    <div class="hex hex2"></div>
+    <div class="hex hex3"></div>
+    <div class="hex hex4"></div>
+  </div>
+  <div class="welcome-card">
+    <div class="welcome-icon">⬡</div>
+    <h1 class="welcome-title">Quiz<span>Gen</span></h1>
+    <p class="welcome-sub">The smart platform for assessments & learning</p>
+    <p class="welcome-question">Who are you today?</p>
+    <div class="role-buttons">
+      <a href="{{ url_for('login', role='student') }}" class="role-btn student-btn">
+        <span class="role-icon">🎓</span>
+        <span class="role-label">Student</span>
+        <span class="role-desc">Take quizzes & track progress</span>
+      </a>
+      <a href="{{ url_for('login', role='teacher') }}" class="role-btn teacher-btn">
+        <span class="role-icon">📋</span>
+        <span class="role-label">Teacher</span>
+        <span class="role-desc">Create & manage quizzes</span>
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}
